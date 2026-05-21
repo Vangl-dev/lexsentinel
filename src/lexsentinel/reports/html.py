@@ -6,7 +6,9 @@ from collections import defaultdict
 import fitz
 import pikepdf
 
-LEXSENTINEL_VERSION = "0.4.0"
+from lexsentinel import __version__
+
+LEXSENTINEL_VERSION = __version__
 
 
 def risk_badge(risk: str):

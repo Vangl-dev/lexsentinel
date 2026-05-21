@@ -4,16 +4,19 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lexsentinel"
-version = "0.1.0"
-description = "LexSentinel — Raio-X PDF"
+version = "0.5.0"
+description = "LexSentinel — Raio-X PDF defensivo"
 requires-python = ">=3.11"
 
 dependencies = [
   "typer",
   "rich",
   "pymupdf",
-  "pikepdf"
+  "pikepdf",
+  "weasyprint",
+  "PySide6",
 ]
 
 [project.scripts]
 lexsentinel = "lexsentinel.cli:app"
+lexsentinel-gui = "lexsentinel_gui.app:main"
