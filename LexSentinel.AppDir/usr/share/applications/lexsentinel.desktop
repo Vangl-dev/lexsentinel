@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=LexSentinel
+Comment=Análise defensiva de PDFs
+Exec=LexSentinel
+Icon=lexsentinel
+Categories=Office;Security;
+Terminal=false

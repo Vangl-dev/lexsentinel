@@ -2,6 +2,7 @@ import html
 import platform
 from pathlib import Path
 from collections import defaultdict
+from lexsentinel.explainer import explain_finding
 
 import fitz
 import pikepdf
@@ -195,26 +196,47 @@ def render_findings(grouped, output_path):
                 evidence_html = (
                     f'<div class="evidence"><img src="{html_escape(rel)}" alt="Evidência visual"></div>'
                 )
-            page_info = f"<div><strong>Página:</strong> {finding.page}</div>" if finding.page else ""
+
+            page_info = (
+                f"<div><strong>Página:</strong> {finding.page}</div>"
+                if finding.page else ""
+            )
+
             confidence = (
                 f"<div><strong>Confiança:</strong> {html_escape(finding.confidence)}</div>"
                 if finding.confidence else ""
             )
-            items.append(f"""
-            <article class=\"finding\">
-                <div class=\"finding-head\">
-                    <div class=\"finding-title\">{html_escape(finding.title)}</div>
-                    <span class=\"severity\" style=\"background:{severity_badge(finding.severity)}\">{html_escape(finding.severity)}</span>
-                </div>
-                <div class=\"finding-meta\">
-                    <div><strong>Score:</strong> {finding.score}</div>
+
+            explanation = explain_finding(finding)
+
+            items.append(
+                f"""
+                <div class="finding">
+                    <div class="finding-header">
+                        <span class="severity severity-{finding.severity.lower()}">
+                            {html_escape(finding.severity)}
+                        </span>
+                        <strong>{html_escape(explanation["human_title"])}</strong>
+                    </div>
+
+                    <div><strong>O que foi encontrado:</strong>
+                    {html_escape(explanation["what"])}</div>
+
+                    <div><strong>Impacto:</strong>
+                    {html_escape(explanation["impact"])}</div>
+
+                    <div><strong>Local:</strong>
+                    {html_escape(explanation["location"])}</div>
+
+                    <div><strong>Recomendação:</strong>
+                    {html_escape(explanation["recommendation"])}</div>
+
                     {page_info}
                     {confidence}
+                    {evidence_html}
                 </div>
-                <div class=\"finding-body\">{html_escape(finding.details)}</div>
-                {evidence_html}
-            </article>
-            """)
+                """
+            )
         blocks.append(f"<section class=\"card\"><h2>{translate_category(category)}</h2>{''.join(items)}</section>")
     return ''.join(blocks)
 

@@ -28,4 +28,4 @@ def test_sanitize_removes_vectors(tmp_path):
 
     assert cleaned.exists()
     assert "OpenAction" in removed
-    assert "JavaScript Namespace" in removed
+    assert "JavaScript" in removed

@@ -13,6 +13,9 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QMessageBox,
     QTextEdit,
+    QDialog,
+    QTextEdit,
+    QHBoxLayout,
 )
 
 from lexsentinel.analyzers.core import analyze
@@ -20,6 +23,7 @@ from lexsentinel.reports.html import render
 from lexsentinel.reports.json import render_json
 from lexsentinel.reports.pdf import render_pdf
 from lexsentinel.sanitizer import sanitize_pdf
+from lexsentinel.extractor import extract_raw_text
 from lexsentinel.utils import default_output_name, sanitized_output_name
 
 
@@ -100,6 +104,10 @@ class LexSentinelApp(QWidget):
         self.open_sanitized_btn.clicked.connect(self.open_sanitized)
         self.open_sanitized_btn.setEnabled(False)
         open_buttons.addWidget(self.open_sanitized_btn)
+
+        self.view_text_btn = QPushButton("Ver texto extraído")
+        self.view_text_btn.clicked.connect(self.view_raw_text)
+        open_buttons.addWidget(self.view_text_btn)
 
         self.open_folder_btn = QPushButton("Abrir Pasta")
         self.open_folder_btn.clicked.connect(self.open_folder)
@@ -214,7 +222,11 @@ class LexSentinelApp(QWidget):
                 Path(self.selected_pdf).parent / sanitized_output_name(self.selected_pdf)
             )
 
-            removed = sanitize_pdf(self.selected_pdf, output)
+            removed = sanitize_pdf(
+                self.selected_pdf,
+                output,
+                aggressive=True,
+            )
 
             self.last_sanitized_pdf = output
             self.open_sanitized_btn.setEnabled(True)
@@ -247,7 +259,73 @@ class LexSentinelApp(QWidget):
         if self.selected_pdf:
             subprocess.run(["xdg-open", str(Path(self.selected_pdf).parent)])
 
+    def view_raw_text(self):
+        if not self.selected_pdf:
+            QMessageBox.warning(
+                self,
+                "Aviso",
+                "Selecione um PDF primeiro."
+            )
+            return
 
+        try:
+            text = extract_raw_text(self.selected_pdf)
+
+            if not text.strip():
+                text = "Nenhum texto extraível encontrado."
+
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Texto extraído")
+            dialog.resize(900, 650)
+
+            layout = QVBoxLayout()
+
+            editor = QTextEdit()
+            editor.setReadOnly(True)
+            editor.setPlainText(text)
+            layout.addWidget(editor)
+
+            buttons = QHBoxLayout()
+
+            copy_btn = QPushButton("Copiar")
+            save_btn = QPushButton("Salvar TXT")
+            close_btn = QPushButton("Fechar")
+
+            def copy_text():
+                QApplication.clipboard().setText(text)
+
+            def save_text():
+                file_path, _ = QFileDialog.getSaveFileName(
+                    self,
+                    "Salvar texto extraído",
+                    "texto_extraido.txt",
+                    "Text Files (*.txt)"
+                )
+
+                if file_path:
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        f.write(text)
+
+            copy_btn.clicked.connect(copy_text)
+            save_btn.clicked.connect(save_text)
+            close_btn.clicked.connect(dialog.close)
+
+            buttons.addWidget(copy_btn)
+            buttons.addWidget(save_btn)
+            buttons.addStretch()
+            buttons.addWidget(close_btn)
+
+            layout.addLayout(buttons)
+
+            dialog.setLayout(layout)
+            dialog.exec()
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Erro",
+                str(e)
+            )
 def main():
     app = QApplication(sys.argv)
     window = LexSentinelApp()
