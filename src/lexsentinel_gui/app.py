@@ -3,6 +3,7 @@ import subprocess
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QWidget,
@@ -16,7 +17,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QTextEdit,
     QHBoxLayout,
-)
+    )
 
 from lexsentinel.analyzers.core import analyze
 from lexsentinel.reports.html import render
@@ -39,6 +40,10 @@ class LexSentinelApp(QWidget):
     def __init__(self):
         super().__init__()
 
+        asset_path = Path(__file__).resolve().parents[2] / "assets" / "icon.png"
+        
+        self.setWindowIcon(QIcon(str(asset_path)))
+
         self.selected_pdf = None
         self.last_html = None
         self.last_pdf = None
@@ -56,14 +61,31 @@ class LexSentinelApp(QWidget):
 
         layout = QVBoxLayout()
 
-        title = QLabel("LexSentinel")
+        header = QHBoxLayout()
+
+        logo = QLabel()
+        asset_path = Path(__file__).resolve().parents[2] / "assets" / "icon.png"
+        pixmap = QPixmap(str(asset_path))
+        logo.setPixmap(pixmap.scaled(64, 64))
+
+        title_box = QVBoxLayout()
+
+        title = QLabel("LexSentinel - Raio-X PDF")
         title.setStyleSheet("font-size: 28px; font-weight: bold;")
-        layout.addWidget(title)
 
         subtitle = QLabel("Análise defensiva de PDFs")
-        layout.addWidget(subtitle)
+        subtitle.setStyleSheet("font-size: 16px;")
 
-        self.status = QLabel("Selecione ou arraste um PDF.")
+        title_box.addWidget(title)
+        title_box.addWidget(subtitle)
+
+        header.addWidget(logo)
+        header.addLayout(title_box)
+        header.addStretch()
+
+        layout.addLayout(header)
+
+        self.status = QLabel("Pronto.")
         layout.addWidget(self.status)
 
         self.risk_badge = QLabel("SEM ANÁLISE")

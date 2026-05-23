@@ -1,6 +1,7 @@
 import html
 import platform
 from pathlib import Path
+import base64
 from collections import defaultdict
 from lexsentinel.explainer import explain_finding
 
@@ -10,6 +11,15 @@ import pikepdf
 from lexsentinel import __version__
 
 LEXSENTINEL_VERSION = __version__
+
+def embedded_logo():
+    logo_path = Path(__file__).resolve().parents[3] / "assets" / "icon.png"
+
+    if not logo_path.exists():
+        return ""
+
+    encoded = base64.b64encode(logo_path.read_bytes()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
 
 
 def risk_badge(risk: str):
@@ -261,9 +271,12 @@ def render_header(result):
     severity = count_by_severity(result.findings)
     return f"""
     <header class=\"hero\">
-        <div>
-            <div class=\"brand\">LexSentinel</div>
-            <div class=\"subtitle\">Raio-X Forense Preliminar de PDF</div>
+        <div class=\"brand-wrap\">
+            <img src=\"{embedded_logo()}\" alt=\"LexSentinel\" class=\"brand-logo\">
+            <div>
+                <div class=\"brand\">LexSentinel</div>
+                <div class=\"subtitle\">Raio-X Forense Preliminar de PDF</div>
+            </div>
         </div>
         <div class=\"risk-box\" style=\"border-color:{color}\">
             <div class=\"risk-icon\">{icon}</div>
@@ -289,6 +302,8 @@ def render_styles():
     .container { max-width:1200px; margin:0 auto; padding:32px; }
     .hero { background:linear-gradient(135deg,#0f172a,#1e293b); color:white; padding:32px; border-radius:18px; display:flex; justify-content:space-between; align-items:center; gap:24px; box-shadow:0 10px 30px rgba(15,23,42,.25); }
     .brand { font-size:32px; font-weight:800; }
+    .brand-wrap { display:flex; align-items:center; gap:18px; }
+    .brand-logo { width:64px; height:64px; border-radius:14px; }
     .subtitle { margin-top:8px; font-size:15px; opacity:.9; }
     .risk-box { background:rgba(255,255,255,.08); border:2px solid; border-radius:16px; padding:18px 22px; display:flex; gap:16px; min-width:260px; }
     .risk-icon { font-size:30px; }

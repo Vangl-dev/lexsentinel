@@ -5,7 +5,7 @@ a = Analysis(
     ['src/lexsentinel_gui/app.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('assets', 'assets')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
