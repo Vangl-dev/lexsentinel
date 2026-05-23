@@ -106,19 +106,19 @@ Permite visualizar exatamente o conteúdo textual efetivamente extraído do docu
 
 ## Interface principal
 
-![Interface principal](docs/screenshots/app-main.png)
+![Interface principal](docs/screenshots/main-page.png)
 
 ---
 
 ## Relatório técnico
 
-![Relatório técnico](docs/screenshots/report-main.png)
+![Relatório técnico](docs/screenshots/reports-finding.png)
 
 ---
 
 ## Exemplo de achado técnico
 
-![Achado técnico](docs/screenshots/report-finding.png)
+![Achado técnico](docs/screenshots/report-finding-critical.png)
 
 ---
 
@@ -138,7 +138,7 @@ chmod +x LexSentinel.AppImage
 # Execução a partir do código-fonte
 
 ```bash
-git clone https://github.com/SEU-USUARIO/lexsentinel.git
+git clone https://github.com/Vangl-dev/lexsentinel.git
 cd lexsentinel
 
 python -m venv .venv
