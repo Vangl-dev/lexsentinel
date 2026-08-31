@@ -165,6 +165,31 @@ def transparency_block():
     )
 
 
+COVERAGE_CATEGORIES = [
+    ("prompt_injection", "Prompt Injection textual (com normalização de whitespace)"),
+    ("hidden_text", "Conteúdo oculto (texto branco, camadas invisíveis)"),
+    ("structure", "Estrutura PDF (OpenAction, JavaScript, AcroForm, anotações)"),
+    ("metadata", "Metadados e fingerprint documental"),
+    ("alt_text", "Atributo /Alt da árvore de estrutura (Structure Tree)"),
+    ("packages", "Verificação de versão de dependências"),
+    ("batch", "Análise em lote (múltiplos arquivos)"),
+]
+
+
+def render_coverage():
+    items = ''.join(
+        f'<li><strong>{html_escape(label)}</strong> — {html_escape(desc)}</li>'
+        for label, desc in COVERAGE_CATEGORIES
+    )
+    return (
+        f'<div class="coverage-banner">'
+        f'<div class="coverage-title">Cobertura da análise</div>'
+        f'<p class="footer-note">Versão do analisador: <code>{html_escape(LEXSENTINEL_VERSION)}</code></p>'
+        f'<ul>{items}</ul>'
+        f'</div>'
+    )
+
+
 def render_fingerprint(fp):
     if not fp:
         return "<p>Fingerprint indisponível.</p>"
@@ -300,12 +325,12 @@ def render_styles():
     <style>
     body { margin:0; padding:0; background:#f8fafc; font-family:Inter,Segoe UI,Arial,sans-serif; color:#0f172a; }
     .container { max-width:1200px; margin:0 auto; padding:32px; }
-    .hero { background:linear-gradient(135deg,#0f172a,#1e293b); color:white; padding:32px; border-radius:18px; display:flex; justify-content:space-between; align-items:center; gap:24px; box-shadow:0 10px 30px rgba(15,23,42,.25); }
+    .hero { background:linear-gradient(135deg,#0f172a,#1e293b); color:white; padding:32px; border-radius:18px; display:flex; justify-content:space-between; align-items:center; gap:24px; flex-wrap:wrap; box-shadow:0 10px 30px rgba(15,23,42,.25); }
     .brand { font-size:32px; font-weight:800; }
-    .brand-wrap { display:flex; align-items:center; gap:18px; }
+    .brand-wrap { display:flex; align-items:center; gap:18px; flex:1; min-width:320px; }
     .brand-logo { width:64px; height:64px; border-radius:14px; }
     .subtitle { margin-top:8px; font-size:15px; opacity:.9; }
-    .risk-box { background:rgba(255,255,255,.08); border:2px solid; border-radius:16px; padding:18px 22px; display:flex; gap:16px; min-width:260px; }
+    .risk-box { background:rgba(255,255,255,.08); border:2px solid; border-radius:16px; padding:18px 22px; display:flex; gap:16px; min-width:260px; flex-shrink:0; }
     .risk-icon { font-size:30px; }
     .risk-title { font-size:20px; font-weight:800; }
     .risk-score { font-size:14px; opacity:.9; }
@@ -327,6 +352,11 @@ def render_styles():
     .evidence { margin-top:18px; }
     .evidence img { max-width:100%; border-radius:12px; border:1px solid #cbd5e1; }
     .footer-note { color:#475569; line-height:1.7; }
+    .coverage-banner { background:#f1f5f9; border-left:4px solid #1e40af; border-radius:10px; padding:18px 22px; margin-bottom:24px; }
+    .coverage-banner .coverage-title { font-size:14px; font-weight:700; color:#1e40af; margin-bottom:10px; }
+    .coverage-banner ul { margin:0; padding-left:18px; }
+    .coverage-banner li { font-size:13px; color:#334155; margin-bottom:4px; }
+    .coverage-banner code { font-size:12px; background:#e2e8f0; padding:2px 6px; border-radius:4px; }
     </style>
     """
 
@@ -350,6 +380,7 @@ def render(result, output_path):
             <section class=\"card\"><h2>Fingerprint documental</h2>{render_fingerprint(result.fingerprint)}</section>
             <section class=\"card\"><h2>Metadados documentais</h2>{render_metadata(result.metadata)}</section>
             {render_findings(grouped, output_path)}
+            {render_coverage()}
             <section class=\"card\"><h2>Metodologia</h2>{methodology_block()}</section>
             <section class=\"card\"><h2>Transparência metodológica</h2><p class=\"footer-note\">{transparency_block()}</p></section>
             <section class=\"card\"><h2>Ambiente técnico</h2>{render_runtime()}</section>

@@ -20,3 +20,9 @@ dependencies = [
 [project.scripts]
 lexsentinel = "lexsentinel.cli:app"
 lexsentinel-gui = "lexsentinel_gui.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = [
+  "src/lexsentinel",
+  "src/lexsentinel_gui",
+]

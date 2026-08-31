@@ -97,12 +97,14 @@ def inspect_structure(result, path):
                     result,
                     Finding(
                         "embedded",
-                        "HIGH",
-                        50,
-                        "HIGH",
+                        "INFO",
+                        0,
+                        "MEDIUM",
                         "EmbeddedFiles detectado",
                         (
                             "Namespace estrutural '/EmbeddedFiles' presente. "
+                            "A existência de arquivos incorporados não indica "
+                            "necessariamente malícia, mas merece verificação. "
                             f"Objeto: {embedded}"
                         ),
                     ),

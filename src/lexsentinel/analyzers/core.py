@@ -10,6 +10,7 @@ from lexsentinel.analyzers.structure import inspect_structure
 from lexsentinel.analyzers.semantic import inspect_semantic
 from lexsentinel.analyzers.hidden_text import inspect_page
 from lexsentinel.analyzers.prompt import detect_prompt, is_academic_context
+from lexsentinel.analyzers.alt_text import inspect_alt_text
 from lexsentinel.evidence import generate_evidence_image
 
 
@@ -85,6 +86,11 @@ def analyze(path, output_html=None):
         result.errors.append(f"Erro em semantic analyzer: {e}")
 
     try:
+        inspect_alt_text(result, path)
+    except Exception as e:
+        result.errors.append(f"Erro em alt-text analyzer: {e}")
+
+    try:
         for page_num, page in enumerate(doc, start=1):
             inspect_page(result, page, page_num)
 
@@ -102,35 +108,29 @@ def analyze(path, output_html=None):
 
                         if marker:
                             bbox = span.get("bbox")
+                            academic = is_academic_context(text)
 
-                            if is_academic_context(text):
-                                add_finding(
-                                    result,
-                                    Finding(
-                                        "semantic",
-                                        "INFO",
-                                        0,
-                                        "HIGH",
-                                        "Contexto acadêmico detectado",
-                                        text[:150],
-                                        page_num,
-                                        bbox=bbox,
-                                    ),
+                            if academic:
+                                title = (
+                                    "Prompt injection potencial "
+                                    "(contexto acadêmico detectado)"
                                 )
                             else:
-                                add_finding(
-                                    result,
-                                    Finding(
-                                        "prompt_injection",
-                                        "CRITICAL",
-                                        100,
-                                        "HIGH",
-                                        "Prompt injection potencial",
-                                        text[:150],
-                                        page_num,
-                                        bbox=bbox,
-                                    ),
-                                )
+                                title = "Prompt injection potencial"
+
+                            add_finding(
+                                result,
+                                Finding(
+                                    "prompt_injection",
+                                    "CRITICAL",
+                                    100,
+                                    "HIGH",
+                                    title,
+                                    text[:150],
+                                    page_num,
+                                    bbox=bbox,
+                                ),
+                            )
 
     except Exception as e:
         result.errors.append(f"Erro durante parsing de páginas: {e}")

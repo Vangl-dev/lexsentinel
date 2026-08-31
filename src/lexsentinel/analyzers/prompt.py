@@ -1,3 +1,5 @@
+import re
+
 ACADEMIC_MARKERS = [
     "arxiv",
     "doi",
@@ -24,15 +26,22 @@ PROMPT_MARKERS = [
     "não impugne",
 ]
 
+_WHITESPACE_RE = re.compile(r"[\s\x00-\x08\x0b\x0c\x0e-\x1f\x7f]+")
+
+
+def normalize_for_detection(text: str) -> str:
+    lowered = text.lower()
+    return _WHITESPACE_RE.sub(" ", lowered)
+
 
 def is_academic_context(text: str) -> bool:
-    lowered = text.lower()
-    return any(marker in lowered for marker in ACADEMIC_MARKERS)
+    normalized = normalize_for_detection(text)
+    return any(marker in normalized for marker in ACADEMIC_MARKERS)
 
 
 def detect_prompt(text: str):
-    lowered = text.lower()
+    normalized = normalize_for_detection(text)
     for marker in PROMPT_MARKERS:
-        if marker in lowered:
+        if marker in normalized:
             return marker
     return None

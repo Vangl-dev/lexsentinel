@@ -4,6 +4,8 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QWidget,
@@ -17,6 +19,9 @@ from PySide6.QtWidgets import (
     QDialog,
     QTextEdit,
     QHBoxLayout,
+    QSizePolicy,
+    QScrollArea,
+    QFrame,
     )
 
 from lexsentinel.analyzers.core import analyze
@@ -85,6 +90,34 @@ class LexSentinelApp(QWidget):
 
         layout.addLayout(header)
 
+        security_update = QHBoxLayout()
+        security_update.setContentsMargins(0, 0, 0, 0)
+
+        security_badge = QLabel("Atualização de segurança")
+        security_badge.setStyleSheet(
+            "background:#1e40af;color:white;padding:4px 10px;border-radius:6px;"
+            "font-size:11px;font-weight:bold;"
+        )
+        security_update.addWidget(security_badge)
+
+        security_desc = QLabel(
+            "Detecção de Prompt Injection, conteúdo oculto e estruturas de PDF ampliadas."
+        )
+        security_desc.setStyleSheet("font-size:12px;color:#475569;")
+        security_desc.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        security_update.addWidget(security_desc)
+
+        what_changed_btn = QPushButton("Ver o que mudou")
+        what_changed_btn.setStyleSheet(
+            "QPushButton{font-size:11px;color:#1e40af;border:1px solid #1e40af;"
+            "border-radius:6px;padding:4px 10px;background:transparent;}"
+            "QPushButton:hover{background:#1e40af;color:white;}"
+        )
+        what_changed_btn.clicked.connect(self.show_update_notes)
+        security_update.addWidget(what_changed_btn)
+
+        layout.addLayout(security_update)
+
         self.status = QLabel("Pronto.")
         layout.addWidget(self.status)
 
@@ -143,6 +176,113 @@ class LexSentinelApp(QWidget):
         layout.addWidget(self.log)
 
         self.setLayout(layout)
+
+    def show_update_notes(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Atualizações de segurança — LexSentinel")
+        dialog.resize(620, 480)
+        dialog.setMinimumSize(500, 360)
+
+        dialog.setStyleSheet(
+            "QDialog{background:#1e293b;}"
+        )
+
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(20, 20, 20, 16)
+        main_layout.setSpacing(12)
+
+        title = QLabel("Principais melhorias")
+        title.setStyleSheet(
+            "font-size:16px;font-weight:bold;color:#f1f5f9;"
+            "margin-bottom:4px;"
+        )
+        main_layout.addWidget(title)
+
+        subtitle = QLabel(
+            "O mecanismo de análise recebeu melhorias nas seguintes áreas:"
+        )
+        subtitle.setStyleSheet("font-size:13px;color:#94a3b8;margin-bottom:8px;")
+        main_layout.addWidget(subtitle)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet(
+            "QScrollArea{background:transparent;border:none;}"
+            "QScrollBar:vertical{background:#334155;width:8px;margin:0;}"
+            "QScrollBar::handle:vertical{background:#475569;border-radius:4px;min-height:30px;}"
+            "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
+        )
+
+        scroll_content = QWidget()
+        scroll_content.setStyleSheet("background:transparent;")
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(0, 0, 8, 0)
+        scroll_layout.setSpacing(8)
+
+        changes = [
+            ("Prompt Injection com whitespace irregular",
+             "Normalização de espaços em branco antes da detecção, eliminando bypasses com tabulações, "
+             "quebras de linha e espaços múltiplos."),
+            ("Prompt Injection em /Alt da Structure Tree",
+             "Elementos como /Standard, /Div e /P com atributo /Alt agora são analisados, "
+             "não apenas /Figure."),
+            ("Detecção ampliada de vetores estruturais PDF",
+             "Ações identificadas pela chave /S (e não por literal), com varredura de anotações, "
+             "árvore de nomes e páginas aninhadas."),
+            ("Conteúdo oculto",
+             "Inspeção de texto branco, camadas invisíveis e artefatos de ocultação visual."),
+            ("Verificação de pacotes",
+             "Checagem de versões das dependências do projeto com suporte a specifiers PEP 440."),
+            ("Análise de alt-text",
+             "Extração e classificação de atributos /Alt de todos os tipos de elementos da árvore de estrutura."),
+            ("Análise em lote",
+             "Processamento de múltiplos arquivos via CLI com suporte a diretórios e saída JSON."),
+        ]
+
+        for label, desc in changes:
+            item_frame = QFrame()
+            item_frame.setStyleSheet(
+                "QFrame{background:#0f172a;border-radius:8px;padding:10px 14px;}"
+            )
+            item_layout = QVBoxLayout()
+            item_layout.setContentsMargins(14, 10, 14, 10)
+            item_layout.setSpacing(4)
+
+            item_label = QLabel(label)
+            item_label.setStyleSheet(
+                "font-size:13px;font-weight:bold;color:#e2e8f0;"
+                "background:transparent;"
+            )
+            item_layout.addWidget(item_label)
+
+            item_desc = QLabel(desc)
+            item_desc.setWordWrap(True)
+            item_desc.setStyleSheet(
+                "font-size:12px;color:#cbd5e1;"
+                "background:transparent;line-height:1.4;"
+            )
+            item_layout.addWidget(item_desc)
+
+            item_frame.setLayout(item_layout)
+            scroll_layout.addWidget(item_frame)
+
+        scroll_layout.addStretch()
+        scroll.setWidget(scroll_content)
+        main_layout.addWidget(scroll, 1)
+
+        close_btn = QPushButton("Fechar")
+        close_btn.setFixedWidth(100)
+        close_btn.setStyleSheet(
+            "QPushButton{font-size:12px;padding:6px 18px;border-radius:6px;"
+            "background:#475569;color:#f1f5f9;font-weight:bold;}"
+            "QPushButton:hover{background:#64748b;}"
+        )
+        close_btn.clicked.connect(dialog.close)
+        main_layout.addWidget(close_btn, alignment=Qt.AlignRight)
+
+        dialog.setLayout(main_layout)
+        dialog.exec()
 
     def reset_outputs(self):
         self.last_html = None
@@ -267,19 +407,21 @@ class LexSentinelApp(QWidget):
 
     def open_html(self):
         if self.last_html:
-            subprocess.run(["xdg-open", self.last_html])
+            QDesktopServices.openUrl(QUrl.fromLocalFile(self.last_html))
 
     def open_pdf(self):
         if self.last_pdf:
-            subprocess.run(["xdg-open", self.last_pdf])
+            QDesktopServices.openUrl(QUrl.fromLocalFile(self.last_pdf))
 
     def open_sanitized(self):
         if self.last_sanitized_pdf:
-            subprocess.run(["xdg-open", self.last_sanitized_pdf])
+            QDesktopServices.openUrl(QUrl.fromLocalFile(self.last_sanitized_pdf))
 
     def open_folder(self):
         if self.selected_pdf:
-            subprocess.run(["xdg-open", str(Path(self.selected_pdf).parent)])
+            QDesktopServices.openUrl(
+                QUrl.fromLocalFile(str(Path(self.selected_pdf).parent))
+            )
 
     def view_raw_text(self):
         if not self.selected_pdf:

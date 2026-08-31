@@ -1,7 +1,36 @@
-.venv/
-.pytest_cache/
-__pycache__/
-*.pyc
+# Flatpak build artifacts
+build-dir/
+repo/
+*.flatpak
+*.AppImage
+LexSentinel.AppDir/
+
+# Python build/dist
 dist/
 build/
 *.egg-info/
+
+# Python runtime
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

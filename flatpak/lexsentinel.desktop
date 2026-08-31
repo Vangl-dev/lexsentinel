@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=LexSentinel
+Comment=Análise defensiva de PDFs
+Exec=lexsentinel-gui
+Icon=io.github.VanglDev.LexSentinel
+Categories=Office;Security;
+Terminal=false
+StartupNotify=true

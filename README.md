@@ -5,20 +5,18 @@
 </p>
 
 <p align="center">
-  <strong>Análise defensiva de PDFs para identificação de conteúdo oculto, estruturas suspeitas e vetores de manipulação documental.</strong>
+  <strong>Ferramenta defensiva para análise de PDFs.</strong>
 </p>
 
 <p align="center">
-  Ferramenta desktop voltada à triagem técnica preliminar de documentos PDF com foco jurídico, forense e segurança documental.
+  Identifica estruturas, conteúdo oculto, ações, scripts, prompt injection e outros elementos que possam representar risco para processamento automatizado e sistemas de IA.
 </p>
 
 ---
 
-## Visão geral
+## O que é o LexSentinel
 
-O **LexSentinel - Raio-X PDF** é uma ferramenta desktop criada para inspeção defensiva de documentos PDF.
-
-Seu objetivo é auxiliar na identificação de artefatos potencialmente capazes de:
+O LexSentinel é uma ferramenta de **análise defensiva** de documentos PDF. Seu objetivo é auxiliar na identificação de artefatos potencialmente capazes de:
 
 - ocultar conteúdo relevante;
 - manipular interpretação automatizada de documentos;
@@ -26,116 +24,177 @@ Seu objetivo é auxiliar na identificação de artefatos potencialmente capazes 
 - introduzir vetores de prompt injection;
 - mascarar comandos ou instruções invisíveis.
 
-A ferramenta combina abordagem **forense documental**, **segurança aplicada** e **análise técnica orientada ao contexto jurídico**.
+**O LexSentinel não é um antivírus nem uma garantia de PDF "seguro".** Ele sinaliza e analisa elementos suspeitos, funcionando como uma camada defensiva complementar. Os resultados devem ser interpretados por um profissional qualificado.
 
 ---
 
-## Funcionalidades
+## Detecção de Prompt Injection
 
-### Análise técnica automatizada
+O LexSentinel detecta marcadores de Prompt Injection em texto extraído de PDFs, incluindo:
+
+- instruções direcionadas a sistemas de IA (em português e inglês);
+- marcadores como `ignore previous instructions`, `ignore instruções anteriores`, entre outros;
+- normalização de whitespace antes da comparação (espaços múltiplos, tabs, quebras de linha);
+- preservação do texto original no achado para inspeção manual.
+
+**Comportamento importante:**
+
+- Prompt Injection detectado é classificado como **CRITICAL** (score 100);
+- contexto acadêmico **não** faz downgrade de um injection detectado;
+- o contexto acadêmico é registrado no título do achado para informação, mas a severidade permanece CRITICAL;
+- Prompt Injection também é analisado em **alt-text** da Structure Tree;
+- alt-text em qualquer tipo de elemento (`/Standard`, `/Div`, `/P`, `/Span`, etc.) é inspecionado, não apenas `/Figure`, `/Formula` ou `/Form`.
+
+---
+
+## Conteúdo oculto
 
 Detecção de:
 
-✅ Prompt injection textual  
-✅ Texto oculto / invisível  
-✅ JavaScript embarcado  
-✅ OpenAction (ações automáticas ao abrir)  
-✅ Arquivos incorporados  
-✅ Metadados suspeitos  
-✅ Estruturas PDF anômalas  
-✅ Camadas opcionais / conteúdo ocultável  
-✅ Extração integral de texto puro  
+- **texto branco/suspeito**: textos com cor `#FFFFFF` (visíveis apenas por seleção);
+- **camadas e estruturas de ocultação**: elementos com tamanhos ou posições anômalas;
+- **elementos relevantes** identificados pelos analyzers existentes.
 
 ---
 
-### Classificação preliminar de risco
+## Sanitização PDF
 
-O documento recebe classificação automatizada:
+O LexSentinel oferece dois modos de sanitização:
 
-- 🟢 Baixo risco
-- 🟡 Suspeito
-- 🟠 Alto risco
-- 🔴 Crítico
+### Sanitização estrutural
 
-Com score técnico cumulativo.
+Remove ou neutraliza vetores estruturais do PDF, incluindo:
 
----
+- **OpenAction** — ação executada ao abrir o documento;
+- **Additional Actions (/AA)** — ações adicionais em documento, páginas e anotações;
+- **Launch** — execução de programas externos;
+- **ImportData** — importação de dados externos;
+- **JavaScript** — código executável embutido;
+- **EmbeddedFiles** — arquivos incorporados;
+- **AcroForm** — formulários interativos;
+- **RichMediaExecute** — conteúdo multimídia interativo;
+- **Sound/Movie em anotações** — anotações de áudio/vídeo;
+- **Metadata** — metadados XMP estruturais;
+- **OCProperties** — camadas opcionais (OCG);
+- **SubmitForm** — envio de formulários.
 
-### Relatórios técnicos
+A detecção de ações utiliza a chave `/S` (tipo de ação), não literais de string, o que permite identificar vetores mesmo quando renomeados.
 
-Geração de relatórios em:
+**Limitação conhecida:** `/JBIG2Decode` **não é removido** automaticamente pela sanitização estrutural. É um filtro legítimo de compressão de imagens e sua remoção indiscriminada pode destruir conteúdo do documento.
 
-- HTML
-- PDF
-- JSON
+### Sanitização agressiva (flattening)
 
-Incluindo:
-
-- resumo executivo;
-- fingerprint documental;
-- explicação técnica dos achados;
-- evidências visuais;
-- ambiente técnico;
-- metodologia aplicada;
-- transparência metodológica.
+Converte cada página do PDF em imagem de alta resolução (2x), eliminando todo o conteúdo vetorial, scripts, camadas ocultas e elementos interativos. O resultado é um PDF "plano" contendo apenas imagens.
 
 ---
 
-### Sanitização defensiva
+## Alt-text (Structure Tree)
 
-Permite neutralização de artefatos potencialmente ativos ou maliciosos.
+O LexSentinel inspeciona o atributo `/Alt` da árvore de estrutura do PDF:
 
-Inclui sanitização agressiva para cenários de contenção e inspeção defensiva.
-
----
-
-### Extração de texto puro
-
-Permite visualizar exatamente o conteúdo textual efetivamente extraído do documento.
-
-Útil para detectar:
-
-- texto invisível;
-- comandos ocultos;
-- payloads documentais;
-- instruções adversariais.
+- extração de `/Alt` de todos os tipos de elementos (`/Figure`, `/Formula`, `/Form`, `/Standard`, `/Div`, `/P`, `/Span`, etc.);
+- análise do conteúdo para Prompt Injection — injection em alt-text é **CRITICAL**;
+- alt-text normal em `/Figure`, `/Formula` ou `/Form` aparece como informação (INFO);
+- **não há OCR** — apenas texto estrutural é analisado.
 
 ---
 
-# Capturas de tela
-
-## Interface principal
-
-![Interface principal](docs/screenshots/main-page.png)
-
----
-
-## Relatório técnico
-
-![Relatório técnico](docs/screenshots/reports-finding.png)
-
----
-
-## Exemplo de achado técnico
-
-![Achado técnico](docs/screenshots/report-finding-critical.png)
-
----
-
-# Instalação (Linux)
-
-Baixe o AppImage na aba **Releases**.
-
-Depois:
+## Análise em lote
 
 ```bash
-chmod +x LexSentinel.AppImage
-./LexSentinel.AppImage
+lexsentinel batch <paths...>
+```
+
+Permite análise de múltiplos arquivos PDF de uma vez.
+
+**Opções:**
+
+| Opção | Descrição |
+|-------|-----------|
+| `--recursive`, `-r` | Busca recursiva em diretórios |
+| `--json`, `-j` | Salva resultados agregados em JSON |
+| `--output-dir` | Diretório para JSONs individuais por arquivo |
+
+**Comportamento:**
+
+- aceita arquivos e diretórios como argumentos;
+- diretórios são varridos por arquivos `.pdf`;
+- erros são tratados individualmente (um arquivo com erro não interrompe o lote);
+- processamento atualmente é sequencial.
+
+---
+
+## Verificação de pacotes
+
+```bash
+lexsentinel check-packages
+```
+
+Verifica as dependências instaladas do projeto:
+
+- compara versões instaladas com os requisitos do pacote;
+- suporta version specifiers (`>=`, `<=`, `==`, `!=`, `~=`);
+- reporta pacotes ausentes ou com versão incompatível;
+- **pip-audit é opcional**: se não estiver instalado, a verificação de vulnerabilidades não é executada (não deve ser confundida com "nenhuma vulnerabilidade encontrada").
+
+---
+
+## Relatórios
+
+Geração de relatórios nos seguintes formatos:
+
+| Formato | Descrição |
+|---------|-----------|
+| **HTML** | Relatório completo com resumo executivo, fingerprint, achados, metodologia, ambiente técnico e disclaimer |
+| **JSON** | Dados estruturados dos resultados para integração com outras ferramentas |
+| **PDF** | Relatório em formato PDF (gerado a partir do HTML) |
+
+O relatório HTML inclui:
+
+- resumo executivo;
+- fingerprint documental (SHA256, versão PDF, creator, producer);
+- metadados documentais;
+- achados técnicos categorizados com severidade;
+- evidências visuais quando aplicável;
+- cobertura da análise;
+- metodologia aplicada;
+- transparência metodológica;
+- ambiente técnico;
+- disclaimer jurídico-técnico.
+
+---
+
+## GUI (Interface gráfica)
+
+A interface gráfica permite:
+
+- selecionar PDFs (clique ou arrastar);
+- executar análise e visualizar resultados;
+- sanitizar documentos;
+- abrir relatórios HTML, PDF e pasta de destino;
+- visualizar texto extraído;
+- verificar atualizações de segurança.
+
+**Executar a partir do código-fonte:**
+
+```bash
+lexsentinel-gui
 ```
 
 ---
 
-# Execução a partir do código-fonte
+## Instalação
+
+### Flatpak
+
+Baixe o arquivo `.flatpak` na aba Releases do GitHub.
+
+```bash
+flatpak install LexSentinel.flatpak
+flatpak run io.github.VanglDev.LexSentinel
+```
+
+### Código-fonte (desenvolvimento)
 
 ```bash
 git clone https://github.com/Vangl-dev/lexsentinel.git
@@ -145,14 +204,19 @@ python -m venv .venv
 source .venv/bin/activate
 
 pip install -e .
+
+# Interface gráfica
 lexsentinel-gui
+
+# Interface de linha de comando
+lexsentinel analyze <arquivo.pdf>
 ```
+
+**Dependências:** Python >= 3.11, pymupdf, pikepdf, weasyprint, PySide6, typer, rich.
 
 ---
 
-# Público-alvo
-
-Especialmente útil para:
+## Público-alvo
 
 - advogados;
 - peritos;
@@ -163,26 +227,36 @@ Especialmente útil para:
 
 ---
 
-# Aviso importante
+## Limitações conhecidas
 
-O LexSentinel realiza **triagem técnica preliminar automatizada**.
+- `/JBIG2Decode` não é removido pela sanitização estrutural (filtro legítimo de compressão);
+- alt-text depende da Structure Tree e não faz OCR;
+- pip-audit é opcional — sua ausência não significa que a auditoria de vulnerabilidades foi executada;
+- análise em lote é atualmente sequencial;
+- detecção de Prompt Injection é baseada nos marcadores implementados e não deve ser apresentada como detector semântico universal;
+- a sanitização agressiva converte páginas em imagens, perdendo texto pesquisável;
+- PDFs protegidos por senha não podem ser analisados.
 
-Não substitui:
+---
+
+## Segurança e responsabilidade
+
+O LexSentinel realiza **triagem técnica preliminar automatizada**. Não substitui:
 
 - perícia forense completa;
 - auditoria especializada;
 - análise humana contextual;
 - validação pericial formal.
 
-Os resultados devem ser interpretados tecnicamente.
+A ferramenta **identifica**, **sinaliza** e **analisa** elementos suspeitos, **reduzindo risco** como parte de uma estratégia defensiva. Não deve ser interpretada como solução definitiva de segurança documental.
 
 ---
 
-# Estado do projeto
+## Estado do projeto
 
-**Release Candidate / Beta**
+**Release Candidate / Beta** — projeto em evolução ativa.
 
-Projeto em evolução ativa.
+Empacotamento Flatpak em andamento. AppImage experimental foi descontinuado.
 
 Roadmap:
 
@@ -194,6 +268,6 @@ Roadmap:
 
 ---
 
-# Licença
+## Licença
 
 MIT
