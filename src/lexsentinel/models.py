@@ -27,6 +27,7 @@ class Fingerprint:
     mod_date: Optional[str]
     encrypted: bool
     linearized: bool
+    page_count: Optional[int] = None
 
 
 @dataclass
@@ -38,3 +39,4 @@ class Result:
     total_score: int = 0
     risk: str = "SAFE"
     errors: List[str] = field(default_factory=list)
+    analyzed_at: Optional[str] = None

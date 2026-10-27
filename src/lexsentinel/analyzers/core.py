@@ -1,4 +1,5 @@
 import hashlib
+from datetime import datetime
 from pathlib import Path
 
 import fitz
@@ -9,8 +10,9 @@ from lexsentinel.analyzers.scoring import classify_risk, add_finding
 from lexsentinel.analyzers.structure import inspect_structure
 from lexsentinel.analyzers.semantic import inspect_semantic
 from lexsentinel.analyzers.hidden_text import inspect_page
-from lexsentinel.analyzers.prompt import detect_prompt, is_academic_context
+from lexsentinel.analyzers.prompt import find_prompt_matches, is_academic_context
 from lexsentinel.analyzers.alt_text import inspect_alt_text
+from lexsentinel.analyzers.extra_text import inspect_extra_text
 from lexsentinel.evidence import generate_evidence_image
 
 
@@ -43,6 +45,7 @@ def build_fingerprint(path, doc, pdf):
         mod_date=meta.get("modDate"),
         encrypted=pdf.is_encrypted,
         linearized=linearized,
+        page_count=doc.page_count,
     )
 
 
@@ -50,6 +53,7 @@ def analyze(path, output_html=None):
     result = Result(
         file_path=path,
         metadata={},
+        analyzed_at=datetime.now().astimezone().isoformat(timespec="seconds"),
     )
 
     try:
@@ -90,47 +94,51 @@ def analyze(path, output_html=None):
     except Exception as e:
         result.errors.append(f"Erro em alt-text analyzer: {e}")
 
+    inspect_extra_text(result, doc, pdf)
+
     try:
         for page_num, page in enumerate(doc, start=1):
             inspect_page(result, page, page_num)
 
-            blocks = page.get_text("dict").get("blocks", [])
+            spans = [
+                span
+                for block in page.get_text("dict").get("blocks", [])
+                for line in block.get("lines", [])
+                for span in line.get("spans", [])
+                if span.get("text", "").strip()
+            ]
 
-            for block in blocks:
-                for line in block.get("lines", []):
-                    for span in line.get("spans", []):
-                        text = span.get("text", "").strip()
+            matches = find_prompt_matches([span["text"] for span in spans])
 
-                        if not text:
-                            continue
+            for marker, indices in matches:
+                matched = [spans[i] for i in indices]
+                text = " ".join(span["text"].strip() for span in matched)
 
-                        marker = detect_prompt(text)
+                bbox = fitz.Rect(matched[0]["bbox"])
+                for span in matched[1:]:
+                    bbox |= fitz.Rect(span["bbox"])
 
-                        if marker:
-                            bbox = span.get("bbox")
-                            academic = is_academic_context(text)
+                if is_academic_context(text):
+                    title = (
+                        "Prompt injection potencial "
+                        "(contexto acadêmico detectado)"
+                    )
+                else:
+                    title = "Prompt injection potencial"
 
-                            if academic:
-                                title = (
-                                    "Prompt injection potencial "
-                                    "(contexto acadêmico detectado)"
-                                )
-                            else:
-                                title = "Prompt injection potencial"
-
-                            add_finding(
-                                result,
-                                Finding(
-                                    "prompt_injection",
-                                    "CRITICAL",
-                                    100,
-                                    "HIGH",
-                                    title,
-                                    text[:150],
-                                    page_num,
-                                    bbox=bbox,
-                                ),
-                            )
+                add_finding(
+                    result,
+                    Finding(
+                        "prompt_injection",
+                        "CRITICAL",
+                        100,
+                        "HIGH",
+                        title,
+                        text[:300],
+                        page_num,
+                        bbox=tuple(bbox),
+                    ),
+                )
 
     except Exception as e:
         result.errors.append(f"Erro durante parsing de páginas: {e}")
