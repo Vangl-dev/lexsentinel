@@ -1,16 +1,105 @@
+import base64
 import html
 import platform
+import re
+from collections import Counter
+from datetime import datetime
 from pathlib import Path
-import base64
-from collections import defaultdict
-from lexsentinel.explainer import explain_finding
 
 import fitz
 import pikepdf
 
 from lexsentinel import __version__
+from lexsentinel.explainer import explain_finding
 
 LEXSENTINEL_VERSION = __version__
+
+SEVERITY_ORDER = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
+
+SEVERITY_LABELS = {
+    "CRITICAL": ("Crítica", "Críticos"),
+    "HIGH": ("Alta", "Altos"),
+    "MEDIUM": ("Média", "Médios"),
+    "LOW": ("Baixa", "Baixos"),
+    "INFO": ("Informativa", "Informativos"),
+}
+
+CONFIDENCE_LABELS = {
+    "HIGH": "Alta",
+    "MEDIUM": "Média",
+    "LOW": "Baixa",
+}
+
+RISK_LABELS = {
+    "SAFE": "Sem indícios relevantes",
+    "SUSPICIOUS": "Suspeito",
+    "HIGH RISK": "Risco alto",
+    "CRITICAL": "Risco crítico",
+}
+
+METADATA_LABELS = {
+    "title": "Título",
+    "author": "Autor",
+    "subject": "Assunto",
+    "keywords": "Palavras-chave",
+    "creator": "Aplicativo de criação",
+    "producer": "Gerador do PDF",
+    "creationDate": "Data de criação",
+    "modDate": "Data de modificação",
+    "format": "Formato",
+    "encryption": "Criptografia",
+    "trapped": "Trapped",
+}
+
+CATEGORY_LABELS = {
+    "prompt_injection": "Instrução a IA",
+    "hidden_text": "Conteúdo oculto",
+    "javascript": "Elemento ativo",
+    "embedded": "Anexo",
+    "metadata": "Metadados",
+    "alt_text": "Texto alternativo",
+    "structure": "Estrutura do PDF",
+    "semantic": "Marcador estrutural",
+    "engine": "Ocorrência técnica",
+}
+
+ANALYSIS_SCOPE = [
+    "Texto de todas as páginas, analisado de forma contínua (instruções "
+    "divididas em trechos diferentes também são identificadas), em busca de "
+    "instruções dirigidas a sistemas de IA em português e inglês.",
+    "Normalização antes da comparação: espaços irregulares, caracteres "
+    "invisíveis (como espaço de largura zero), variantes Unicode de letras e "
+    "acentuação.",
+    "Metadados do documento (dicionário Info e bloco XMP), comentários e "
+    "anotações, campos de formulário e marcadores do sumário.",
+    "Texto em cor branca, incluindo fontes com tamanho inferior a 1 ponto.",
+    "Texto alternativo (/Alt) de todos os elementos da árvore de estrutura.",
+    "Elementos ativos e estruturais: ação de abertura (/OpenAction), "
+    "JavaScript, formulários, camadas opcionais e arquivos anexados.",
+    "Identificação do arquivo por hash SHA-256 e registro dos metadados "
+    "declarados.",
+]
+
+ANALYSIS_LIMITS = [
+    "Não há reconhecimento óptico (OCR): texto contido em imagens não é lido.",
+    "O conteúdo de arquivos anexados não é analisado.",
+    "Texto posicionado fora da área visível da página não é analisado; texto "
+    "com modo de renderização invisível e texto coberto por outros elementos "
+    "são varridos em busca de instruções, mas não são classificados como "
+    "conteúdo oculto.",
+    "A detecção de instruções a IA baseia-se em uma lista de expressões; "
+    "variações de redação não previstas podem não ser identificadas.",
+]
+
+DISCLAIMER = (
+    "Este laudo tem natureza técnica e preliminar e foi gerado por análise "
+    "automatizada baseada em regras determinísticas, sem uso de inteligência "
+    "artificial na classificação. Não constitui perícia judicial nem atesta a "
+    "inocuidade do documento. A ausência de achados indica apenas que os testes "
+    "descritos na seção de metodologia não identificaram indícios, e os "
+    "resultados devem ser interpretados por profissional qualificado."
+)
+
 
 def embedded_logo():
     logo_path = Path(__file__).resolve().parents[3] / "assets" / "icon.png"
@@ -22,69 +111,8 @@ def embedded_logo():
     return f"data:image/png;base64,{encoded}"
 
 
-def risk_badge(risk: str):
-    mapping = {
-        "SAFE": ("🟢", "#16a34a", "Baixo risco"),
-        "SUSPICIOUS": ("🟡", "#ca8a04", "Suspeito"),
-        "HIGH RISK": ("🟠", "#ea580c", "Alto risco"),
-        "CRITICAL": ("🔴", "#dc2626", "Crítico"),
-    }
-    return mapping.get(risk, ("⚪", "#64748b", risk))
-
-
-def severity_badge(severity: str):
-    mapping = {
-        "LOW": "#0ea5e9",
-        "MEDIUM": "#f59e0b",
-        "HIGH": "#f97316",
-        "CRITICAL": "#dc2626",
-    }
-    return mapping.get(severity, "#64748b")
-
-
-def translate_category(category: str):
-    mapping = {
-        "open_action": "Ação automática ao abrir",
-        "javascript": "JavaScript embarcado",
-        "embedded_files": "Arquivos incorporados",
-        "ocg": "Camadas opcionais (OCG)",
-        "semantic_markers": "Marcadores semânticos",
-        "hidden_text": "Texto oculto",
-        "prompt_injection": "Prompt injection textual",
-        "semantic_poisoning": "Envenenamento semântico",
-        "metadata": "Metadados",
-        "structure": "Estrutura PDF",
-    }
-    return mapping.get(category.lower(), category.replace("_", " ").title())
-
-
-def group_findings(findings):
-    grouped = defaultdict(list)
-    for finding in findings:
-        grouped[finding.category].append(finding)
-    return grouped
-
-
-def get_runtime_info():
-    return {
-        "python": platform.python_version(),
-        "system": platform.system(),
-        "system_release": platform.release(),
-        "pymupdf": fitz.VersionBind,
-        "pikepdf": pikepdf.__version__,
-        "lexsentinel": LEXSENTINEL_VERSION,
-    }
-
-
-def count_by_severity(findings):
-    buckets = defaultdict(int)
-    for finding in findings:
-        buckets[finding.severity] += 1
-    return buckets
-
-
 def html_escape(value):
-    if value is None:
+    if value is None or value == "":
         return "—"
     return html.escape(str(value))
 
@@ -92,301 +120,521 @@ def html_escape(value):
 def file_size_human(size):
     if size is None:
         return "—"
-    units = ["B", "KB", "MB", "GB", "TB"]
+    units = ["bytes", "KB", "MB", "GB", "TB"]
     current = float(size)
     for unit in units:
         if current < 1024:
-            return f"{current:.2f} {unit}"
+            if unit == "bytes":
+                return f"{int(current)} bytes"
+            return f"{current:.1f} {unit}".replace(".", ",")
         current /= 1024
-    return f"{current:.2f} PB"
+    return f"{current:.1f} PB".replace(".", ",")
 
 
-def relative_evidence_path(output_path, evidence_path):
-    if not evidence_path:
+_PDF_DATE_RE = re.compile(
+    r"^D:(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?(\d{2})?([Z+\-])?(\d{2})?'?(\d{2})?"
+)
+
+
+def format_pdf_date(value):
+    if not value:
         return None
+    match = _PDF_DATE_RE.match(str(value))
+    if not match:
+        return str(value)
+    year, month, day, hour, minute, second, tz, tz_h, tz_m = match.groups()
+    text = f"{day or '01'}/{month or '01'}/{year}"
+    if hour:
+        text += f" {hour}:{minute or '00'}:{second or '00'}"
+    if tz == "Z":
+        text += " (UTC)"
+    elif tz and tz_h:
+        text += f" (UTC{tz}{tz_h}:{tz_m or '00'})"
+    return text
+
+
+def format_analysis_date(value):
+    if not value:
+        return "—"
     try:
-        html_dir = Path(output_path).parent.resolve()
-        evidence = Path(evidence_path).resolve()
-        return str(evidence.relative_to(html_dir))
-    except Exception:
-        return str(evidence_path)
+        moment = datetime.fromisoformat(value)
+    except ValueError:
+        return value
+    offset = moment.strftime("%z")
+    tz = f" (UTC{offset[:3]}:{offset[3:]})" if offset else ""
+    return moment.strftime("%d/%m/%Y às %H:%M:%S") + tz
 
 
-def executive_summary(result):
+def report_id(result):
+    digest = result.fingerprint.sha256[:8].upper() if result.fingerprint else "SEMHASH"
+    stamp = ""
+    if result.analyzed_at:
+        try:
+            stamp = datetime.fromisoformat(result.analyzed_at).strftime("-%Y%m%d-%H%M%S")
+        except ValueError:
+            pass
+    return f"LS-{digest}{stamp}"
+
+
+def severity_rank(severity):
+    try:
+        return SEVERITY_ORDER.index(severity)
+    except ValueError:
+        return len(SEVERITY_ORDER)
+
+
+def sorted_findings(findings):
+    return sorted(findings, key=lambda f: (severity_rank(f.severity), f.page or 0))
+
+
+def severity_tag(severity):
+    label = SEVERITY_LABELS.get(severity, (severity, severity))[0]
+    css = severity.lower() if severity in SEVERITY_LABELS else "info"
+    return f'<span class="tag tag-{css}">{html_escape(label)}</span>'
+
+
+def finding_location(finding, explanation):
+    if finding.page:
+        return f"Página {finding.page}"
+    return explanation["location"]
+
+
+def get_runtime_info():
+    return {
+        "LexSentinel": LEXSENTINEL_VERSION,
+        "Python": platform.python_version(),
+        "Sistema operacional": f"{platform.system()} {platform.release()}",
+        "PyMuPDF": fitz.VersionBind,
+        "pikepdf": pikepdf.__version__,
+    }
+
+
+def evidence_src(output_path, evidence_path):
+    path = Path(evidence_path)
+    try:
+        encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+        return f"data:image/png;base64,{encoded}"
+    except OSError:
+        pass
+    try:
+        return str(path.resolve().relative_to(Path(output_path).parent.resolve()))
+    except ValueError:
+        return str(path)
+
+
+def conclusion_text(result, findings):
+    counts = Counter(f.severity for f in findings)
+    relevant = [f for f in findings if f.severity in ("CRITICAL", "HIGH")]
+
     if result.risk == "SAFE":
-        return (
-            "Não foram identificados indícios relevantes de vetores adversariais documentais "
-            "segundo a metodologia determinística aplicada."
+        text = (
+            "Os testes aplicados não identificaram indícios relevantes de "
+            "manipulação dirigida a sistemas de IA, conteúdo oculto ou "
+            "elementos ativos. Esse resultado não garante a inocuidade do "
+            "documento; consulte as limitações descritas na seção 5."
         )
-    if result.risk == "SUSPICIOUS":
-        return (
-            "Foram identificados elementos atípicos ou heurísticos compatíveis com comportamentos "
-            "potencialmente manipulativos, recomendando-se revisão humana complementar."
-        )
-    if result.risk == "HIGH RISK":
-        return (
-            "Foram identificados múltiplos indicadores técnicos consistentes com vetores adversariais "
-            "documentais que demandam cautela operacional."
-        )
+        if counts:
+            text += (
+                " Os registros listados abaixo têm caráter informativo ou de "
+                "baixa gravidade."
+            )
+        return text
+
+    parts = []
+    for severity in SEVERITY_ORDER:
+        n = counts.get(severity, 0)
+        if not n:
+            continue
+        if severity == "CRITICAL":
+            label = "crítico" if n == 1 else "críticos"
+        elif severity == "INFO":
+            label = "informativo" if n == 1 else "informativos"
+        else:
+            label = f"de gravidade {SEVERITY_LABELS[severity][0].lower()}"
+        parts.append(f"{n} {'achado' if n == 1 else 'achados'} {label}")
+
+    summary = ", ".join(parts[:-1]) + (" e " if len(parts) > 1 else "") + parts[-1]
+    text = f"A análise registrou {summary}."
+
+    if relevant:
+        highlights = []
+        for finding in relevant:
+            title = explain_finding(finding)["human_title"]
+            where = f" (página {finding.page})" if finding.page else ""
+            item = f"{title[:1].lower()}{title[1:]}{where}"
+            if item not in highlights:
+                highlights.append(item)
+        text += " Destaques: " + "; ".join(highlights[:4]) + "."
+
     if result.risk == "CRITICAL":
-        return (
-            "O documento apresenta artefatos altamente compatíveis com vetores adversariais potencialmente "
-            "hostis, inclusive mecanismos de manipulação estrutural."
+        text += (
+            " Recomenda-se não submeter o documento a ferramentas de IA nem "
+            "utilizá-lo em fluxos automatizados antes da revisão humana dos "
+            "trechos indicados."
         )
-    return "Classificação indeterminada."
+    elif result.risk == "HIGH RISK":
+        text += " Recomenda-se revisão humana antes de qualquer processamento automatizado."
+    else:
+        text += " Recomenda-se revisão humana dos itens apontados."
+
+    return text
 
 
-def methodology_block():
-    return """
-    <ul>
-        <li>Análise estrutural determinística do container PDF;</li>
-        <li>Inspeção de metadados e fingerprint documental;</li>
-        <li>Detecção de objetos potencialmente ativos;</li>
-        <li>Varredura heurística de conteúdo textual;</li>
-        <li>Identificação de indicadores de ocultação semântica;</li>
-        <li>Correlação de evidências técnicas observáveis.</li>
-    </ul>
-    """
-
-
-def disclaimer_block():
-    return (
-        "Este relatório possui natureza técnico-informativa preliminar. Não constitui perícia judicial, "
-        "parecer conclusivo ou certificação absoluta de inocuidade documental. A metodologia empregada "
-        "baseia-se em regras determinísticas e heurísticas técnicas observáveis, sujeitas a limitações "
-        "inerentes ao formato PDF."
-    )
-
-
-def transparency_block():
-    return (
-        "O núcleo analítico do LexSentinel opera sem inferência generativa autônoma para classificação "
-        "principal, empregando scoring técnico explícito e inspeção objetiva de artefatos detectáveis."
-    )
-
-
-COVERAGE_CATEGORIES = [
-    ("prompt_injection", "Prompt Injection textual (com normalização de whitespace)"),
-    ("hidden_text", "Conteúdo oculto (texto branco, camadas invisíveis)"),
-    ("structure", "Estrutura PDF (OpenAction, JavaScript, AcroForm, anotações)"),
-    ("metadata", "Metadados e fingerprint documental"),
-    ("alt_text", "Atributo /Alt da árvore de estrutura (Structure Tree)"),
-    ("packages", "Verificação de versão de dependências"),
-    ("batch", "Análise em lote (múltiplos arquivos)"),
-]
-
-
-def render_coverage():
-    items = ''.join(
-        f'<li><strong>{html_escape(label)}</strong> — {html_escape(desc)}</li>'
-        for label, desc in COVERAGE_CATEGORIES
-    )
-    return (
-        f'<div class="coverage-banner">'
-        f'<div class="coverage-title">Cobertura da análise</div>'
-        f'<p class="footer-note">Versão do analisador: <code>{html_escape(LEXSENTINEL_VERSION)}</code></p>'
-        f'<ul>{items}</ul>'
-        f'</div>'
-    )
-
-
-def render_fingerprint(fp):
-    if not fp:
-        return "<p>Fingerprint indisponível.</p>"
+def render_header(result, rid):
+    logo = embedded_logo()
+    logo_html = f'<img src="{logo}" alt="" class="logo">' if logo else ""
+    risk = result.risk if result.risk in RISK_LABELS else "SUSPICIOUS"
     return f"""
-    <table class=\"kv\">
-        <tr><th>Arquivo</th><td>{html_escape(fp.filename)}</td></tr>
-        <tr><th>Tamanho</th><td>{file_size_human(fp.file_size)}</td></tr>
-        <tr><th>SHA256</th><td class=\"mono\">{html_escape(fp.sha256)}</td></tr>
-        <tr><th>Versão PDF</th><td>{html_escape(fp.pdf_version)}</td></tr>
-        <tr><th>Creator</th><td>{html_escape(fp.creator)}</td></tr>
-        <tr><th>Producer</th><td>{html_escape(fp.producer)}</td></tr>
-        <tr><th>Criação</th><td>{html_escape(fp.creation_date)}</td></tr>
-        <tr><th>Modificação</th><td>{html_escape(fp.mod_date)}</td></tr>
-        <tr><th>Criptografado</th><td>{'Sim' if fp.encrypted else 'Não'}</td></tr>
-        <tr><th>Linearizado</th><td>{'Sim' if fp.linearized else 'Não'}</td></tr>
-    </table>
+    <header class="hero">
+        <div class="hero-top">
+            <div class="brand">
+                {logo_html}
+                <div>
+                    <div class="brand-name">LexSentinel</div>
+                    <div class="brand-sub">Laudo técnico de análise de PDF</div>
+                </div>
+            </div>
+            <div class="verdict verdict-{risk.lower().replace(' ', '-')}">
+                <span class="verdict-dot"></span>
+                <div>
+                    <div class="verdict-value">{html_escape(RISK_LABELS[risk])}</div>
+                    <div class="verdict-score">Pontuação técnica: {result.total_score}</div>
+                </div>
+            </div>
+        </div>
+        <div class="hero-meta">
+            <div><span>Laudo nº</span>{html_escape(rid)}</div>
+            <div><span>Data da análise</span>{html_escape(format_analysis_date(result.analyzed_at))}</div>
+            <div><span>Versão</span>LexSentinel {html_escape(LEXSENTINEL_VERSION)}</div>
+        </div>
+    </header>
     """
 
 
-def render_metadata(metadata):
-    if not metadata:
-        return "<p>Metadados indisponíveis.</p>"
-    rows = []
-    for key, value in sorted(metadata.items()):
-        rows.append(f"<tr><th>{html_escape(key)}</th><td>{html_escape(value)}</td></tr>")
-    return f"<table class=\"kv\">{''.join(rows)}</table>"
+def render_conclusion(result, findings):
+    counts = Counter(f.severity for f in findings)
+    metrics = "".join(
+        f'<div class="metric metric-{sev.lower()}"><div class="metric-value">{counts.get(sev, 0)}</div>'
+        f'<div class="metric-label">{SEVERITY_LABELS[sev][1]}</div></div>'
+        for sev in SEVERITY_ORDER
+    )
+    return f"""
+    <div class="metrics">{metrics}</div>
+    <section class="card">
+        <h2><span class="num">1</span>Conclusão</h2>
+        <p class="conclusion">{html_escape(conclusion_text(result, findings))}</p>
+        <p class="note">A pontuação técnica é a soma dos pesos atribuídos a cada achado e determina
+        a classificação (crítico a partir de 90; risco alto a partir de 60; suspeito a partir de 25).
+        Esta análise verifica instruções dirigidas a sistemas de IA (prompt injection), conteúdo
+        oculto e elementos ativos.</p>
+    </section>
+    """
 
 
-def render_findings(grouped, output_path):
-    if not grouped:
-        return "<section class=\"card\"><h2>Achados técnicos</h2><p>Nenhum achado registrado.</p></section>"
-    blocks = []
-    for category, findings in grouped.items():
-        items = []
-        for finding in findings:
-            evidence_html = ""
-            if finding.evidence_path:
-                rel = relative_evidence_path(output_path, finding.evidence_path)
-                evidence_html = (
-                    f'<div class="evidence"><img src="{html_escape(rel)}" alt="Evidência visual"></div>'
-                )
+def render_document(result):
+    fp = result.fingerprint
+    if not fp:
+        body = "<p>Não foi possível identificar o arquivo.</p>"
+    else:
+        rows = [
+            ("Arquivo", html_escape(fp.filename)),
+            ("SHA-256", f'<span class="mono">{html_escape(fp.sha256)}</span>'),
+            ("Tamanho", f"{file_size_human(fp.file_size)}"),
+            ("Páginas", html_escape(fp.page_count)),
+            ("Versão do formato", html_escape(fp.pdf_version and f"PDF {fp.pdf_version}")),
+            ("Criptografado", "Sim" if fp.encrypted else "Não"),
+            ("Linearizado", "Sim" if fp.linearized else "Não"),
+        ]
+        body = "<table class=\"kv\">" + "".join(
+            f"<tr><th>{k}</th><td>{v}</td></tr>" for k, v in rows
+        ) + "</table>"
+        body += (
+            '<p class="note">O hash SHA-256 identifica de forma única o arquivo analisado. '
+            "Qualquer alteração no arquivo, por menor que seja, produz um hash diferente.</p>"
+        )
 
-            page_info = (
-                f"<div><strong>Página:</strong> {finding.page}</div>"
-                if finding.page else ""
-            )
+    metadata = result.metadata or {}
+    if metadata:
+        rows = []
+        for key, value in metadata.items():
+            label = METADATA_LABELS.get(key, key)
+            shown = format_pdf_date(value) if key in ("creationDate", "modDate") else value
+            rows.append(f"<tr><th>{html_escape(label)}</th><td>{html_escape(shown)}</td></tr>")
+        meta_html = f"<table class=\"kv\">{''.join(rows)}</table>"
+    else:
+        meta_html = "<p>O documento não declara metadados.</p>"
 
-            confidence = (
-                f"<div><strong>Confiança:</strong> {html_escape(finding.confidence)}</div>"
-                if finding.confidence else ""
-            )
+    return f"""
+    <section class="card">
+        <h2><span class="num">2</span>Documento analisado</h2>
+        {body}
+        <h3>Metadados declarados</h3>
+        {meta_html}
+        <p class="note">Metadados são informados por quem gerou o arquivo e podem ser alterados livremente.</p>
+    </section>
+    """
 
+
+def render_summary_table(findings):
+    if not findings:
+        body = "<p>Nenhum achado registrado.</p>"
+    else:
+        rows = []
+        for i, finding in enumerate(findings, start=1):
             explanation = explain_finding(finding)
-
-            items.append(
-                f"""
-                <div class="finding">
-                    <div class="finding-header">
-                        <span class="severity severity-{finding.severity.lower()}">
-                            {html_escape(finding.severity)}
-                        </span>
-                        <strong>{html_escape(explanation["human_title"])}</strong>
-                    </div>
-
-                    <div><strong>O que foi encontrado:</strong>
-                    {html_escape(explanation["what"])}</div>
-
-                    <div><strong>Impacto:</strong>
-                    {html_escape(explanation["impact"])}</div>
-
-                    <div><strong>Local:</strong>
-                    {html_escape(explanation["location"])}</div>
-
-                    <div><strong>Recomendação:</strong>
-                    {html_escape(explanation["recommendation"])}</div>
-
-                    {page_info}
-                    {confidence}
-                    {evidence_html}
-                </div>
-                """
+            rows.append(
+                f"<tr><td class=\"c\">{i}</td><td>{severity_tag(finding.severity)}</td>"
+                f"<td><a href=\"#achado-{i}\">{html_escape(explanation['human_title'])}</a></td>"
+                f"<td>{html_escape(CATEGORY_LABELS.get(finding.category, finding.category))}</td>"
+                f"<td>{html_escape(finding_location(finding, explanation))}</td></tr>"
             )
-        blocks.append(f"<section class=\"card\"><h2>{translate_category(category)}</h2>{''.join(items)}</section>")
-    return ''.join(blocks)
+        body = (
+            "<table class=\"grid\"><thead><tr><th class=\"c\">Nº</th><th>Gravidade</th>"
+            "<th>Achado</th><th>Tipo</th><th>Localização</th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table>"
+        )
+    return f"""
+    <section class="card">
+        <h2><span class="num">3</span>Quadro de achados</h2>
+        {body}
+    </section>
+    """
+
+
+def render_finding(i, finding, output_path):
+    explanation = explain_finding(finding)
+    details = finding.details or ""
+    if len(details) > 1200:
+        details = details[:1200] + " […]"
+
+    evidence_html = ""
+    if finding.evidence_path:
+        note = explanation.get("evidence_note") or "A área destacada em vermelho indica a posição do achado."
+        evidence_html = f"""
+        <figure>
+            <img src="{html_escape(evidence_src(output_path, finding.evidence_path))}"
+                 alt="Página {finding.page} com a área do achado destacada">
+            <figcaption>Figura {i}: página {finding.page}. {html_escape(note)}</figcaption>
+        </figure>
+        """
+
+    confidence = CONFIDENCE_LABELS.get(finding.confidence, finding.confidence)
+
+    return f"""
+    <article class="finding finding-{finding.severity.lower()}" id="achado-{i}">
+        <header>
+            <span class="finding-num">Achado {i}</span>
+            {severity_tag(finding.severity)}
+            <h3>{html_escape(explanation['human_title'])}</h3>
+        </header>
+        <dl>
+            <dt>O que foi encontrado</dt><dd>{html_escape(explanation['what'])}</dd>
+            <dt>Conteúdo identificado</dt><dd><pre>{html_escape(details)}</pre></dd>
+            <dt>Por que importa</dt><dd>{html_escape(explanation['impact'])}</dd>
+            <dt>Localização</dt><dd>{html_escape(finding_location(finding, explanation))}</dd>
+            <dt>Confiança da detecção</dt><dd>{html_escape(confidence)}</dd>
+            <dt>Recomendação</dt><dd>{html_escape(explanation['recommendation'])}</dd>
+        </dl>
+        {evidence_html}
+    </article>
+    """
+
+
+def render_findings(findings, output_path):
+    if not findings:
+        body = (
+            "<p>Nenhum achado a detalhar. Os testes aplicados estão descritos na seção 5.</p>"
+        )
+    else:
+        body = "".join(
+            render_finding(i, finding, output_path)
+            for i, finding in enumerate(findings, start=1)
+        )
+    return f"""
+    <section class="card">
+        <h2><span class="num">4</span>Detalhamento dos achados</h2>
+        {body}
+    </section>
+    """
 
 
 def render_errors(errors):
     if not errors:
         return ""
-    items = ''.join(f"<li>{html_escape(err)}</li>" for err in errors)
-    return f"<section class=\"card warning\"><h2>Alertas operacionais</h2><ul>{items}</ul></section>"
-
-
-def render_runtime():
-    rt = get_runtime_info()
-    rows = []
-    for key, value in rt.items():
-        rows.append(f"<tr><th>{html_escape(key)}</th><td>{html_escape(value)}</td></tr>")
-    return f"<table class=\"kv\">{''.join(rows)}</table>"
-
-
-def render_header(result):
-    icon, color, label = risk_badge(result.risk)
-    severity = count_by_severity(result.findings)
+    items = "".join(f"<li>{html_escape(err)}</li>" for err in errors)
     return f"""
-    <header class=\"hero\">
-        <div class=\"brand-wrap\">
-            <img src=\"{embedded_logo()}\" alt=\"LexSentinel\" class=\"brand-logo\">
-            <div>
-                <div class=\"brand\">LexSentinel</div>
-                <div class=\"subtitle\">Raio-X Forense Preliminar de PDF</div>
-            </div>
-        </div>
-        <div class=\"risk-box\" style=\"border-color:{color}\">
-            <div class=\"risk-icon\">{icon}</div>
-            <div>
-                <div class=\"risk-title\">{label}</div>
-                <div class=\"risk-score\">Score técnico: {result.total_score}</div>
-            </div>
-        </div>
-    </header>
-    <section class=\"summary-grid\">
-        <div class=\"metric\"><div class=\"metric-value\">{len(result.findings)}</div><div class=\"metric-label\">Achados</div></div>
-        <div class=\"metric\"><div class=\"metric-value\">{severity.get('CRITICAL', 0)}</div><div class=\"metric-label\">Críticos</div></div>
-        <div class=\"metric\"><div class=\"metric-value\">{severity.get('HIGH', 0)}</div><div class=\"metric-label\">Altos</div></div>
-        <div class=\"metric\"><div class=\"metric-value\">{severity.get('MEDIUM', 0)}</div><div class=\"metric-label\">Médios</div></div>
+    <div class="alert">
+        <strong>Ocorrências durante a análise.</strong>
+        Parte da análise pode não ter sido concluída. Os resultados devem ser lidos com essa ressalva.
+        <ul>{items}</ul>
+    </div>
+    """
+
+
+def render_methodology():
+    scope = "".join(f"<li>{html_escape(item)}</li>" for item in ANALYSIS_SCOPE)
+    limits = "".join(f"<li>{html_escape(item)}</li>" for item in ANALYSIS_LIMITS)
+    return f"""
+    <section class="card">
+        <h2><span class="num">5</span>Metodologia e limitações</h2>
+        <p>A análise é automatizada e determinística: as mesmas regras, aplicadas ao mesmo
+        arquivo, produzem o mesmo resultado. Nenhum sistema de IA é usado para classificar
+        o documento.</p>
+        <h3>O que foi verificado</h3>
+        <ul>{scope}</ul>
+        <h3>O que não foi verificado</h3>
+        <ul>{limits}</ul>
     </section>
     """
 
 
-def render_styles():
+def render_appendix():
+    rows = "".join(
+        f"<tr><th>{html_escape(k)}</th><td>{html_escape(v)}</td></tr>"
+        for k, v in get_runtime_info().items()
+    )
+    return f"""
+    <section class="card appendix">
+        <h2>Anexo: ambiente técnico</h2>
+        <table class="kv">{rows}</table>
+        <h2>Ressalva</h2>
+        <p class="disclaimer">{html_escape(DISCLAIMER)}</p>
+    </section>
+    """
+
+
+def render_styles(rid):
     return """
     <style>
-    body { margin:0; padding:0; background:#f8fafc; font-family:Inter,Segoe UI,Arial,sans-serif; color:#0f172a; }
-    .container { max-width:1200px; margin:0 auto; padding:32px; }
-    .hero { background:linear-gradient(135deg,#0f172a,#1e293b); color:white; padding:32px; border-radius:18px; display:flex; justify-content:space-between; align-items:center; gap:24px; flex-wrap:wrap; box-shadow:0 10px 30px rgba(15,23,42,.25); }
-    .brand { font-size:32px; font-weight:800; }
-    .brand-wrap { display:flex; align-items:center; gap:18px; flex:1; min-width:320px; }
-    .brand-logo { width:64px; height:64px; border-radius:14px; }
-    .subtitle { margin-top:8px; font-size:15px; opacity:.9; }
-    .risk-box { background:rgba(255,255,255,.08); border:2px solid; border-radius:16px; padding:18px 22px; display:flex; gap:16px; min-width:260px; flex-shrink:0; }
-    .risk-icon { font-size:30px; }
-    .risk-title { font-size:20px; font-weight:800; }
-    .risk-score { font-size:14px; opacity:.9; }
-    .summary-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:18px; margin:28px 0; }
-    .metric, .card { background:white; border-radius:18px; padding:24px; box-shadow:0 8px 24px rgba(15,23,42,.08); }
-    .card { margin-bottom:24px; }
-    .warning { border-left:6px solid #dc2626; }
-    h2 { margin-top:0; }
-    .kv { width:100%; border-collapse:collapse; }
-    .kv th, .kv td { padding:10px; border-bottom:1px solid #e2e8f0; text-align:left; }
-    .kv th { width:260px; }
-    .mono { font-family:ui-monospace,SFMono-Regular,monospace; word-break:break-all; }
-    .finding { border:1px solid #e2e8f0; border-radius:14px; padding:18px; margin-bottom:18px; }
-    .finding-head { display:flex; justify-content:space-between; gap:12px; }
-    .finding-title { font-size:18px; font-weight:700; }
-    .severity { color:white; padding:6px 12px; border-radius:999px; font-size:12px; font-weight:700; }
-    .finding-meta { display:flex; gap:24px; flex-wrap:wrap; margin-top:14px; font-size:14px; }
-    .finding-body { margin-top:16px; line-height:1.6; white-space:pre-wrap; }
-    .evidence { margin-top:18px; }
-    .evidence img { max-width:100%; border-radius:12px; border:1px solid #cbd5e1; }
-    .footer-note { color:#475569; line-height:1.7; }
-    .coverage-banner { background:#f1f5f9; border-left:4px solid #1e40af; border-radius:10px; padding:18px 22px; margin-bottom:24px; }
-    .coverage-banner .coverage-title { font-size:14px; font-weight:700; color:#1e40af; margin-bottom:10px; }
-    .coverage-banner ul { margin:0; padding-left:18px; }
-    .coverage-banner li { font-size:13px; color:#334155; margin-bottom:4px; }
-    .coverage-banner code { font-size:12px; background:#e2e8f0; padding:2px 6px; border-radius:4px; }
+    @page {
+        size: A4;
+        margin: 16mm 14mm 18mm 14mm;
+        background: #f1f5f9;
+        @bottom-left { content: "LexSentinel · Laudo nº __RID__"; font: 8pt "Liberation Sans", Arial, sans-serif; color: #64748b; }
+        @bottom-right { content: "Página " counter(page) " de " counter(pages); font: 8pt "Liberation Sans", Arial, sans-serif; color: #64748b; }
+    }
+    :root {
+        --ink: #0f172a; --muted: #475569; --line: #e2e8f0; --soft: #f8fafc; --bg: #f1f5f9;
+        --navy: #0f172a; --navy-2: #1e293b; --accent: #1e3a5f;
+        --critical: #dc2626; --high: #ea580c; --medium: #ca8a04; --low: #0284c7; --info: #64748b;
+        --safe: #16a34a;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink);
+           font: 10.5pt/1.6 "Inter", "Segoe UI", "Liberation Sans", "DejaVu Sans", Arial, sans-serif; }
+    .page { max-width: 210mm; margin: 0 auto; padding: 28px 20px; }
+    @media print { .page { padding: 0; max-width: none; } }
+
+    .hero { background: linear-gradient(135deg, var(--navy), var(--navy-2)); color: white;
+            border-radius: 16px; padding: 24px 26px 18px; break-inside: avoid; }
+    .hero-top { display: flex; justify-content: space-between; align-items: center; gap: 18px; flex-wrap: wrap; }
+    .brand { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 280px; }
+    .logo { width: 56px; height: 56px; }
+    .brand-name { font-size: 22pt; font-weight: 800; line-height: 1.1; }
+    .brand-sub { font-size: 10pt; opacity: .85; margin-top: 4px; }
+    .verdict { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-radius: 12px;
+               border: 2px solid var(--info); background: rgba(255,255,255,.07); min-width: 220px; }
+    .verdict-dot { width: 16px; height: 16px; border-radius: 50%; background: var(--info); flex-shrink: 0; }
+    .verdict-value { font-size: 14pt; font-weight: 800; line-height: 1.2; }
+    .verdict-score { font-size: 8.5pt; opacity: .8; }
+    .verdict-critical { border-color: var(--critical); } .verdict-critical .verdict-dot { background: var(--critical); }
+    .verdict-high-risk { border-color: var(--high); } .verdict-high-risk .verdict-dot { background: var(--high); }
+    .verdict-suspicious { border-color: var(--medium); } .verdict-suspicious .verdict-dot { background: var(--medium); }
+    .verdict-safe { border-color: var(--safe); } .verdict-safe .verdict-dot { background: var(--safe); }
+    .hero-meta { display: flex; gap: 8px 28px; flex-wrap: wrap; margin-top: 18px; padding-top: 12px;
+                 border-top: 1px solid rgba(255,255,255,.15); font-size: 8.5pt; }
+    .hero-meta span { display: block; opacity: .6; font-size: 7.5pt; text-transform: uppercase; letter-spacing: .06em; }
+
+    .metrics { display: flex; gap: 10px; margin: 14px 0; }
+    .metric { flex: 1; background: white; border-radius: 12px; padding: 10px 12px; border-top: 4px solid var(--info);
+              text-align: center; }
+    .metric-value { font-size: 18pt; font-weight: 800; line-height: 1.2; }
+    .metric-label { font-size: 8pt; color: var(--muted); }
+    .metric-critical { border-top-color: var(--critical); } .metric-critical .metric-value { color: var(--critical); }
+    .metric-high { border-top-color: var(--high); } .metric-high .metric-value { color: var(--high); }
+    .metric-medium { border-top-color: var(--medium); } .metric-medium .metric-value { color: var(--medium); }
+    .metric-low { border-top-color: var(--low); } .metric-low .metric-value { color: var(--low); }
+    @media (max-width: 640px) { .metrics { flex-wrap: wrap; } .metric { flex-basis: 30%; } }
+
+    .card { background: white; border-radius: 14px; padding: 18px 22px; margin-bottom: 14px; }
+    h2 { font-size: 13pt; margin: 0 0 12px; display: flex; align-items: center; gap: 10px; break-after: avoid; }
+    h2 .num { display: inline-block; width: 24px; height: 24px; border-radius: 50%; background: var(--accent);
+              color: white; font-size: 10pt; line-height: 24px; text-align: center; flex-shrink: 0; }
+    h3 { font-size: 10.5pt; margin: 16px 0 6px; break-after: avoid; }
+    .conclusion { margin: 0; font-size: 11pt; }
+    .note { font-size: 8.5pt; color: var(--muted); margin: 8px 0 0; }
+    .mono, pre { font-family: "DejaVu Sans Mono", "Liberation Mono", ui-monospace, monospace; }
+    .mono { word-break: break-all; font-size: 9pt; }
+    a { color: inherit; text-decoration: none; }
+
+    table.kv, table.grid { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+    .kv th, .kv td, .grid th, .grid td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line);
+                                         vertical-align: top; }
+    .kv th { width: 34%; font-weight: 600; color: var(--muted); }
+    .kv td { word-break: break-word; }
+    .grid thead th { font-size: 8pt; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+                     border-bottom: 2px solid var(--line); }
+    .grid tr { break-inside: avoid; }
+    .c { text-align: center !important; width: 3em; }
+
+    .tag { display: inline-block; font-size: 7.5pt; font-weight: 700; text-transform: uppercase;
+           letter-spacing: .05em; padding: 2px 9px; border-radius: 999px; color: white; white-space: nowrap; }
+    .tag-critical { background: var(--critical); } .tag-high { background: var(--high); }
+    .tag-medium { background: var(--medium); } .tag-low { background: var(--low); } .tag-info { background: var(--info); }
+
+    .finding { border: 1px solid var(--line); border-radius: 12px; margin: 0 0 14px; overflow: hidden; }
+    .finding header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 14px;
+                      background: var(--soft); border-bottom: 1px solid var(--line); break-inside: avoid; }
+    .finding-critical header { background: #fef2f2; border-bottom-color: #fecaca; }
+    .finding-high header { background: #fff7ed; border-bottom-color: #fed7aa; }
+    .finding-medium header { background: #fefce8; border-bottom-color: #fef08a; }
+    .finding-low header { background: #f0f9ff; border-bottom-color: #bae6fd; }
+    .finding-num { font-size: 8.5pt; color: var(--muted); font-weight: 700; }
+    .finding h3 { margin: 0; flex-basis: 100%; font-size: 11pt; }
+    .finding dl { display: grid; grid-template-columns: 30% 1fr; gap: 6px 14px; margin: 0; padding: 12px 14px;
+                  font-size: 9.5pt; break-inside: avoid; }
+    .finding dt { color: var(--muted); font-weight: 600; }
+    .finding dd { margin: 0; }
+    .finding pre { margin: 0; padding: 7px 10px; background: var(--navy); color: #f8fafc; border-radius: 8px;
+                   white-space: pre-wrap; word-break: break-word; font-size: 8.5pt; }
+    figure { margin: 0 14px 14px; border: 1px solid var(--line); border-radius: 8px; break-inside: avoid; overflow: hidden; }
+    figure img { width: 100%; height: auto; display: block; }
+    figcaption { font-size: 8pt; color: var(--muted); padding: 5px 10px; border-top: 1px solid var(--line); background: var(--soft); }
+
+    .alert { background: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 12px 16px;
+             margin: 14px 0; font-size: 9.5pt; }
+    .alert ul { margin: 6px 0 0; }
+    ul { padding-left: 18px; margin: 4px 0; }
+    li { margin-bottom: 3px; }
+    .appendix h2 + table { margin-bottom: 18px; }
+    .disclaimer { font-size: 9pt; color: var(--muted); text-align: justify; margin: 0; }
     </style>
-    """
+    """.replace("__RID__", rid)
 
 
 def render(result, output_path):
-    grouped = group_findings(result.findings)
-    html_doc = f"""
-    <!DOCTYPE html>
-    <html lang=\"pt-BR\">
-    <head>
-        <meta charset=\"UTF-8\">
-        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
-        <title>LexSentinel — Relatório Técnico</title>
-        {render_styles()}
-    </head>
-    <body>
-        <div class=\"container\">
-            {render_header(result)}
-            <section class=\"card\"><h2>Resumo executivo</h2><p class=\"footer-note\">{html_escape(executive_summary(result))}</p></section>
-            {render_errors(result.errors)}
-            <section class=\"card\"><h2>Fingerprint documental</h2>{render_fingerprint(result.fingerprint)}</section>
-            <section class=\"card\"><h2>Metadados documentais</h2>{render_metadata(result.metadata)}</section>
-            {render_findings(grouped, output_path)}
-            {render_coverage()}
-            <section class=\"card\"><h2>Metodologia</h2>{methodology_block()}</section>
-            <section class=\"card\"><h2>Transparência metodológica</h2><p class=\"footer-note\">{transparency_block()}</p></section>
-            <section class=\"card\"><h2>Ambiente técnico</h2>{render_runtime()}</section>
-            <section class=\"card\"><h2>Disclaimer jurídico-técnico</h2><p class=\"footer-note\">{disclaimer_block()}</p></section>
-        </div>
-    </body>
-    </html>
-    """
-    Path(output_path).write_text(html_doc, encoding='utf-8')
+    findings = sorted_findings(result.findings)
+    rid = report_id(result)
+    html_doc = f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Laudo {html_escape(rid)} · LexSentinel</title>
+    {render_styles(rid)}
+</head>
+<body>
+<main class="page">
+    {render_header(result, rid)}
+    {render_errors(result.errors)}
+    {render_conclusion(result, findings)}
+    {render_document(result)}
+    {render_summary_table(findings)}
+    {render_findings(findings, output_path)}
+    {render_methodology()}
+    {render_appendix()}
+</main>
+</body>
+</html>
+"""
+    Path(output_path).write_text(html_doc, encoding="utf-8")

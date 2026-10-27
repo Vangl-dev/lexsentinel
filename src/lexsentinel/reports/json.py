@@ -2,9 +2,13 @@ import json
 from pathlib import Path
 from dataclasses import asdict
 
+from lexsentinel import __version__
+
 
 def render_json(result, output_path):
     data = {
+        "lexsentinel_version": __version__,
+        "analyzed_at": result.analyzed_at,
         "file_path": result.file_path,
         "metadata": result.metadata,
         "fingerprint": asdict(result.fingerprint) if result.fingerprint else None,

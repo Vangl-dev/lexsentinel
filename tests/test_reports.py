@@ -38,7 +38,7 @@ def test_render_html(tmp_path):
 
     assert "LexSentinel" in content
     assert "teste.pdf" in content
-    assert "Fingerprint documental" in content
+    assert "Documento analisado" in content
 
 
 def test_render_json(tmp_path):
