@@ -33,9 +33,25 @@ O LexSentinel é uma ferramenta de **análise defensiva** de documentos PDF. Seu
 O LexSentinel detecta marcadores de Prompt Injection em texto extraído de PDFs, incluindo:
 
 - instruções direcionadas a sistemas de IA (em português e inglês);
-- marcadores como `ignore previous instructions`, `ignore instruções anteriores`, entre outros;
-- normalização de whitespace antes da comparação (espaços múltiplos, tabs, quebras de linha);
+- marcadores como `ignore previous instructions`, `ignore instruções`, `aja como`, entre outros;
 - preservação do texto original no achado para inspeção manual.
+
+**Onde o texto é procurado:**
+
+- texto de todas as páginas, analisado de forma contínua: uma instrução dividida em trechos diferentes (por exemplo, `ignore previous` + `instructions` com formatação distinta) também é identificada;
+- metadados do documento (dicionário Info: Título, Autor, Assunto, Palavras-chave e campos personalizados);
+- metadados XMP;
+- comentários e anotações;
+- campos de formulário (valor, rótulo e nome);
+- marcadores do sumário (bookmarks);
+- texto alternativo (`/Alt`) da árvore de estrutura.
+
+**Normalização antes da comparação:**
+
+- espaços irregulares (múltiplos, tabs, quebras de linha);
+- caracteres invisíveis de formatação, como espaço de largura zero (`U+200B`) e hífen invisível (`U+00AD`);
+- variantes Unicode de letras (letras de largura total, ligaduras), via NFKC;
+- acentuação: `instrucoes` é reconhecido como `instruções`.
 
 **Comportamento importante:**
 
@@ -145,22 +161,21 @@ Geração de relatórios nos seguintes formatos:
 
 | Formato | Descrição |
 |---------|-----------|
-| **HTML** | Relatório completo com resumo executivo, fingerprint, achados, metodologia, ambiente técnico e disclaimer |
-| **JSON** | Dados estruturados dos resultados para integração com outras ferramentas |
-| **PDF** | Relatório em formato PDF (gerado a partir do HTML) |
+| **HTML** | Laudo técnico completo em arquivo único (imagens de evidência embutidas), pronto para envio |
+| **JSON** | Dados estruturados dos resultados, com data da análise e versão, para integração com outras ferramentas |
+| **PDF** | Laudo em A4, com numeração de páginas e nº do laudo no rodapé (gerado a partir do HTML) |
 
-O relatório HTML inclui:
+O laudo é organizado em seções numeradas:
 
-- resumo executivo;
-- fingerprint documental (SHA256, versão PDF, creator, producer);
-- metadados documentais;
-- achados técnicos categorizados com severidade;
-- evidências visuais quando aplicável;
-- cobertura da análise;
-- metodologia aplicada;
-- transparência metodológica;
-- ambiente técnico;
-- disclaimer jurídico-técnico.
+- **cabeçalho**: nº do laudo, data e hora da análise (com fuso horário), versão da ferramenta e classificação de risco;
+- **1. Conclusão**: texto em linguagem clara com os principais achados e a recomendação, e contagem por gravidade;
+- **2. Documento analisado**: nome, hash SHA-256, tamanho, nº de páginas, versão do formato e metadados declarados;
+- **3. Quadro de achados**: tabela resumida, ordenada por gravidade;
+- **4. Detalhamento dos achados**: para cada achado, o que foi encontrado, o trecho exato, por que importa, localização, confiança da detecção, recomendação e evidência visual recortada em volta do trecho;
+- **5. Metodologia e limitações**: o que foi verificado e, de forma explícita, o que não foi;
+- **anexo**: ambiente técnico e ressalva.
+
+As imagens de evidência também são salvas na pasta `evidencias/`, com o nome do PDF analisado no nome do arquivo, para que análises de documentos diferentes na mesma pasta não se sobrescrevam.
 
 ---
 
@@ -233,7 +248,9 @@ lexsentinel analyze <arquivo.pdf>
 - alt-text depende da Structure Tree e não faz OCR;
 - pip-audit é opcional — sua ausência não significa que a auditoria de vulnerabilidades foi executada;
 - análise em lote é atualmente sequencial;
-- detecção de Prompt Injection é baseada nos marcadores implementados e não deve ser apresentada como detector semântico universal;
+- detecção de Prompt Injection é baseada nos marcadores implementados e não deve ser apresentada como detector semântico universal; variações de redação não previstas (como `ignore todas as instruções anteriores`) podem não ser identificadas;
+- texto posicionado fora da área visível da página não é analisado;
+- o conteúdo de arquivos anexados ao PDF não é analisado;
 - a sanitização agressiva converte páginas em imagens, perdendo texto pesquisável;
 - PDFs protegidos por senha não podem ser analisados.
 
